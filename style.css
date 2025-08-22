@@ -1,0 +1,54 @@
+/* Basic layout and styling for the spinning wheel page */
+:root {
+    --bg: #e6cae7;
+    --card: #071026;
+    --accent: #f59e0b;
+    --muted: #9ca3af;
+}
+
+* {
+    box-sizing: border-box
+}
+
+html,
+body {
+    height: 100%
+}
+
+.line {
+    position: fixed;
+    height: 2px;
+    background: black;
+    top: 0;
+    left: 0;
+}
+
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+    background: linear-gradient(180deg, var(--bg), #f0e4d0 60%);
+    color: #e6eef8;
+    display: flex;
+    align-items: start;
+    justify-content: center;
+}
+
+text {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+}
+
+div#wheel, svg {
+    display:block;
+    background: transparent;
+    width: 100vmin;
+    height: 100vmin;
+    touch-action: none;
+}
+
+@media(min-width:760px) {
+}
+
+@media(max-width:760px) {
+}
