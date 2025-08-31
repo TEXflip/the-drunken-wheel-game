@@ -3,7 +3,8 @@ let mouse = {
     y: 0,
     down: false
 };
-let angle_velocity = 0, angle = 0, last_time = 0;
+let wheel_angle_velocity = 0, wheel_angle = 0, last_time = 0;
+let selector_angle_velocity = 0, selector_angle = 0;
 
 const SVG = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 let margin = 0.15;
@@ -12,14 +13,14 @@ SVG.addEventListener('pointerdown', onPointerDown);
 SVG.addEventListener('pointermove', onPointerMove);
 SVG.addEventListener('pointerup', onPointerUp);
 SVG.addEventListener('pointercancel', () => pointerTracker.clear());
-SVG.svgToScreen = function (p) {
+SVG.svgToScreen = function (p) { // TODO: this is horrible
     if (!Array.isArray(p[0])) {
         const pt = SVG.createSVGPoint();
         pt.x = p[0];
         pt.y = p[1];
         return pt.matrixTransform(SVG.getScreenCTM());
     }
-    let points = p;
+    let points = p.map(point => point.slice());
     for (let i = 0; i < points.length; i++) {
         points[i] = SVG.svgToScreen(points[i]);
     }
@@ -30,12 +31,16 @@ document.getElementById("wheel").appendChild(SVG);
 const wheel_0 = document.createElementNS("http://www.w3.org/2000/svg", "g");
 const choices = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
 const selector_collision = selector_collision_points();
-let debug_points = [];
-const pins = [];
+let selector_group;
+const pins = {
+    list: [],
+    radius: 0.02,
+};
 
-class debug_canvas {
+class DebugCanvas {
     constructor() {
         this.canvas = document.createElement("canvas");
+        this.canvas.setAttribute("id", "debug-canvas");
         this.canvas.style.position = "fixed";
         this.canvas.style.top = "0";
         this.canvas.style.left = "0";
@@ -55,24 +60,24 @@ class debug_canvas {
             [scale * sinA,  scale * cosA, translation[1]],
             [0,             0,            1]
         ];
-        for (let i = 0; i < 3; i++) {
-            let p0 = debug_points[i];
-            let p1 = debug_points[(i + 1) % 3];
-            // let p0_t = transform_point(p0, rototranslation_matrix);
-            // let p1_t = transform_point(p1, rototranslation_matrix);
-            this.lines.push([p0, p1]);
-        }
     }
-    draw() {
+    reset() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.ctx.strokeStyle = "black";
-        this.ctx.lineWidth = 2;
-        for (let line of this.lines) {
-            this.ctx.beginPath();
-            this.ctx.moveTo(line[0].x, line[0].y);
-            this.ctx.lineTo(line[1].x, line[1].y);
-            this.ctx.stroke();
-        }
+    }
+    draw_point(x, y, r) {
+        this.ctx.fillStyle = "green";
+        this.ctx.beginPath();
+        this.ctx.arc(x, y, r, 0, 2 * Math.PI);
+        this.ctx.fill();
+    }
+    draw_triangle(x1, y1, x2, y2, x3, y3) {
+        this.ctx.fillStyle = "blue";
+        this.ctx.beginPath();
+        this.ctx.moveTo(x1, y1);
+        this.ctx.lineTo(x2, y2);
+        this.ctx.lineTo(x3, y3);
+        this.ctx.closePath();
+        this.ctx.fill();
     }
 }
 
@@ -82,29 +87,50 @@ function create_selector(position = [1.04, 0], scale = 0.05, rotation = Math.PI 
     const p0 = [-0.8660254, 0.5];
     const p1 = [0.8660254, 0.5];
     const p2 = [0, 2];
-    const points = [p0, p1, p2];
+    const points = [p0, p1, p2, [0., 0.]];
     const cosA = Math.cos(rotation);
     const sinA = Math.sin(rotation);
-    const rototranslation_matrix = [
+    const RT = [
         [scale * cosA, -scale * sinA, position[0]],
         [scale * sinA,  scale * cosA, position[1]]
     ];
-    const points_t = points.map(p => transform_point(p, rototranslation_matrix));
-    selector_path.setAttribute("d", `M ${points_t[0][0]} ${points_t[0][1]} A ${scale} ${scale} 0 1 1 ${points_t[1][0]} ${points_t[1][1]} L ${points_t[2][0]} ${points_t[2][1]} Z`);
+    const points_t = points.map(p => transform_point(p, RT));
+    // selector_path.setAttribute("d", `M ${points_t[0][0]} ${points_t[0][1]} A ${scale} ${scale} 0 1 1 ${points_t[1][0]} ${points_t[1][1]} L ${points_t[2][0]} ${points_t[2][1]} Z`);
+    selector_path.setAttribute("d", `M -0.866 0.5 A 1 1 0 1 1 0.866 0.5 L 0 2 Z`);
     selector_path.setAttribute("fill", "white");
     selector_path.setAttribute("stroke", "black");
     selector_path.setAttribute("stroke-width", "0.005");
 
     const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    circle.setAttribute("cx", `${position[0]}`);
-    circle.setAttribute("cy", `${position[1]}`);
-    circle.setAttribute("r", `${scale*0.3}`);
+    // circle.setAttribute("cx", `${position[0]}`);
+    // circle.setAttribute("cy", `${position[1]}`);
+    circle.setAttribute("cx", `0`);
+    circle.setAttribute("cy", `0`);
+    circle.setAttribute("r", `0.3`);
     circle.setAttribute("fill", "black");
 
     selector_group.appendChild(selector_path);
     selector_group.appendChild(circle);
+    // selector_group.setAttribute("transform", `matrix(${RT[0][0]} ${RT[0][1]} ${RT[1][0]} ${RT[1][1]} ${RT[0][2]} ${RT[1][2]})`);
+    selector_group.setAttribute("transform", `translate(${position[0]} ${position[1]}) rotate(${rotation * 180 / Math.PI}) scale(${scale})`);
+    selector_group.points = points_t;
+    selector_group.rotation = rotation;
+    selector_group.scale = scale;
+    selector_group.position = position;
+    selector_group.setAttribute("id", "selector");
+    selector_group.set_rotation = (rotation) => {
+        selector_group.rotation = rotation;
+        const cosA = Math.cos(rotation);
+        const sinA = Math.sin(rotation);
+        const RT = [
+            [selector_group.scale * cosA, -selector_group.scale * sinA, selector_group.position[0]],
+            [selector_group.scale * sinA,  selector_group.scale * cosA, selector_group.position[1]]
+        ];
+        selector_group.points = points.map(p => transform_point(p, RT));
+        selector_group.setAttribute("transform", `translate(${position[0]} ${position[1]}) rotate(${rotation * 180 / Math.PI}) scale(${scale})`);
+    };
 
-    return [selector_group, points_t];
+    return selector_group;
 }
 
 function create_wheel_svg(parent) {
@@ -164,12 +190,12 @@ function create_wheel_svg(parent) {
         pin.setAttribute("stroke", "black");
         pin.setAttribute("stroke-width", "0.002");
         wheel_0.appendChild(pin);
-        pins.push(pin);
+        pins.list.push(pin);
     }
+    pins.radius = Math.abs(SVG.svgToScreen([0, 0]).x - SVG.svgToScreen([0.02, 0]).x);
 
-    const [selector_group, points_t] = create_selector();
-    debug_points = SVG.svgToScreen(points_t);
-
+    selector_group = create_selector();
+    // debug_points = SVG.svgToScreen(selector_group.points);
     parent.appendChild(wheel_0);
     parent.appendChild(selector_group); // selector
 }
@@ -237,7 +263,7 @@ function onPointerUp(e) {
 }
 
 function angle_to_index(angle) {
-    return parseInt(pins.length * (Math.PI * 2 - angle + (Math.PI / pins.length)) / (Math.PI * 2)) % pins.length;
+    return parseInt(pins.list.length * (Math.PI * 2 - angle + (Math.PI / pins.list.length)) / (Math.PI * 2)) % pins.list.length;
 }
 
 function loop(now) {
@@ -245,31 +271,60 @@ function loop(now) {
     pointerTracker.addSample(mouse.x, mouse.y, performance.now());
     pointerTracker.compute();
     if (mouse.down) {
-        angle_velocity = pointerTracker.lastVelocity.angVel * delta_time;
+        wheel_angle_velocity = pointerTracker.lastVelocity.angVel * delta_time;
     }
-    angle += angle_velocity;
-    while (angle > Math.PI * 2) angle -= Math.PI * 2;
-    while (angle <= 0) angle += Math.PI * 2;
-    let index = angle_to_index(angle);
-    pins.forEach((p, i) => p.setAttribute("fill", i === index ? "red" : "white"));
-
-    let sel_bbox = pins[index].getBoundingClientRect();
+    wheel_angle += wheel_angle_velocity;
+    selector_angle += selector_angle_velocity;
+    while (wheel_angle > Math.PI * 2) wheel_angle -= Math.PI * 2;
+    while (wheel_angle <= 0) wheel_angle += Math.PI * 2;
+    let index = angle_to_index(wheel_angle);
+    
+    let pin_bbox = pins.list[index].getBoundingClientRect();
     let [cx, cy, c_r] = [
-        sel_bbox.left + sel_bbox.width / 2,
-        sel_bbox.top + sel_bbox.height / 2,
-        sel_bbox.width / 2
+        pin_bbox.left + pin_bbox.width / 2,
+        pin_bbox.top + pin_bbox.height / 2,
+        pins.radius,
     ];
 
-    wheel_0.setAttribute("transform", `rotate(${angle * 180 / Math.PI})`);
-    angle_velocity *= (Math.tanh(100 * Math.abs(angle_velocity) + 2.5) * 0.995);
+    let sp = SVG.svgToScreen(selector_group.points);
+    let [collision, qx, qy] = triangle_circle_collision(sp[0].x, sp[0].y, sp[1].x, sp[1].y, sp[2].x, sp[2].y, cx, cy, c_r);
+    let selector_radius_px = magnitude({ x: sp[3].x - sp[1].x, y: sp[3].y - sp[1].y });
+    // console.log(sp[0].x, sp[0].y, sp[1].x, sp[1].y, sp[2].x, sp[2].y);
+    // debug_canvas.draw_triangle(sp[0].x, sp[0].y, sp[1].x, sp[1].y, sp[2].x, sp[2].y);
+    debug_canvas.reset();
+    if (collision) {
+        let triangle_vector = { x: qx - sp[3].x, y: qy - sp[3].y };
+        let direction_vector = { x: sp[2].x - sp[3].x, y: sp[2].y - sp[3].y };
+        let cross = triangle_vector.x * direction_vector.y - triangle_vector.y * direction_vector.x;
+        let [t_up, t_dw] = internal_tangent_points(cx, cy, c_r, sp[3].x, sp[3].y, selector_radius_px);
+        let t = (cross < 0 ? t_up : t_dw);
+        let next_triangle_vector = { x: (t.x + cx) - sp[3].x, y: (t.y + cy) - sp[3].y };
+        let angle_diff = Math.acos(dot(triangle_vector.x, triangle_vector.y, next_triangle_vector.x, next_triangle_vector.y) / (magnitude(triangle_vector) * magnitude(next_triangle_vector)));
+        if (cross > 0){
+            selector_angle += angle_diff;
+            wheel_angle_velocity += 0.00001 * delta_time;
+        }
+        else{
+            selector_angle -= angle_diff;
+            wheel_angle_velocity -= 0.00001 * delta_time;
+        }
+        console.log("collision!");
+    }
+    else {
+        selector_angle_velocity = -selector_angle * 0.02 * delta_time;
+    }
+
+    wheel_0.setAttribute("transform", `rotate(${wheel_angle * 180 / Math.PI})`);
+    selector_group.set_rotation(selector_angle + Math.PI / 2);
+    wheel_angle_velocity *= (Math.tanh(100 * Math.abs(wheel_angle_velocity) + 2.5) * 0.995);
     last_time = now;
     requestAnimationFrame(loop);
 }
 
+let debug_canvas;
 function onload() {
     create_wheel_svg(SVG);
-    // let c = new debug_canvas()
-    // c.draw();
+    debug_canvas = new DebugCanvas();
     requestAnimationFrame(loop);
 }
 
